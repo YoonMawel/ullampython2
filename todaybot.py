@@ -37,7 +37,6 @@ EXTRA_LIMIT_USERS = {
 COUNT_FILE = "user_daily_count.json"
 REWARD_FILE = "user_reward.json"
 LAST_FILE = "user_last_daily.json"
-INVENTORY_FILE = "user_inventory.json"
 
 
 # ===== JSON 로드 =====
@@ -65,7 +64,6 @@ def parse_item_string(item_str):
 user_counts = load_json(COUNT_FILE)
 user_rewards = load_json(REWARD_FILE)
 user_last = load_json(LAST_FILE)
-user_inventory = load_json(INVENTORY_FILE)
 
 # ===== 구글 시트 연동 =====
 scope = [
@@ -87,8 +85,36 @@ sheet_data = [
     if str(row.get("조사 ID", "")).strip() != "" and str(row.get("메인 문장", "")).strip() != ""
 ]
 
-def update_inventory_sheet(user):
+# ===== 시트 기반 인벤토리 도우미 함수 =====
+def get_user_inventory(user):
     headers = sheet_inventory.row_values(1)
+    all_users = sheet_inventory.col_values(1)
+    try:
+        row_index = all_users.index(user) + 1
+    except ValueError:
+        # 신규 유저 초기화
+        sheet_inventory.append_row([user, 0, 0, "-"])
+        return {"금": 0, "영혼": 0}
+
+    row = sheet_inventory.row_values(row_index)
+    gold = int(row[1]) if len(row) > 1 and row[1].isdigit() else 0
+    soul = int(row[2]) if len(row) > 2 and row[2].isdigit() else 0
+    items_raw = row[3] if len(row) > 3 else "-"
+    items = {}
+
+    if items_raw and items_raw != "-":
+        for token in items_raw.split(","):
+            match = re.match(r"\s*(.+?)x(\d+)개\s*", token.strip())
+            if match:
+                name = match.group(1).strip()
+                count = int(match.group(2))
+                items[name] = count
+
+    items["금"] = gold
+    items["영혼"] = soul
+    return items
+
+def update_inventory(user, inventory):
     all_users = sheet_inventory.col_values(1)
     try:
         row_index = all_users.index(user) + 1
@@ -96,28 +122,26 @@ def update_inventory_sheet(user):
         row_index = len(all_users) + 1
         sheet_inventory.update_cell(row_index, 1, user)
 
-    inventory = user_inventory.get(user, {})
     gold = inventory.get("금", 0)
     soul = inventory.get("영혼", 0)
-    item_strs = [f"{k}x{v}개" for k, v in inventory.items() if k not in ["금", "영혼"] and v > 0]
+    item_strs = [
+        f"{k}x{v}개" for k, v in inventory.items()
+        if k not in ["금", "영혼"] and v > 0
+    ]
     item_cell = ", ".join(item_strs) if item_strs else "-"
-
-    sheet_inventory.update(range_name=f"B{row_index}:D{row_index}", values=[[gold, soul, item_cell]])
+    sheet_inventory.update(f"B{row_index}:D{row_index}", [[gold, soul, item_cell]])
 
 def add_item(user, item_str):
-    inventory = user_inventory.setdefault(user, {})
+    inventory = get_user_inventory(user)
     for item, qty in parse_item_string(item_str):
         inventory[item] = inventory.get(item, 0) + qty
-    save_json(INVENTORY_FILE, user_inventory)
-    update_inventory_sheet(user)
+    update_inventory(user, inventory)
 
 def remove_item(user, item_str):
-    inventory = user_inventory.setdefault(user, {})
+    inventory = get_user_inventory(user)
     for item, qty in parse_item_string(item_str):
         inventory[item] = max(inventory.get(item, 0) - qty, 0)
-    save_json(INVENTORY_FILE, user_inventory)
-    update_inventory_sheet(user)
-
+    update_inventory(user, inventory)
 
 # ===== 마스토돈 세팅 =====
 mastodon = Mastodon(
@@ -211,10 +235,16 @@ def handle_followup(user, status_id, followup_key):  # 추가 선택지 처리
     # ===== 소모 재화 처리 =====
     consume_str = match.get("소모 재화", "").strip()
     if consume_str:
-        name, amount = parse_item_string(consume_str)
-        current = user_inventory.get(user, {}).get(name, 0)
-        if current < amount:
-            response += f"\n[진행 불가] {consume_str}가 부족하여 이벤트를 정상적으로 진행할 수 없습니다."
+        parsed_items = parse_item_string(consume_str)
+        inventory = get_user_inventory(user)
+        insufficient = []
+
+        for name, amount in parsed_items:
+            if inventory.get(name, 0) < amount:
+                insufficient.append(f"{name} {amount}개")
+
+        if insufficient:
+            response += "\n[진행 불가] 다음 재화가 부족합니다: " + ", ".join(insufficient)
             mastodon.status_post(
                 status=f"@{user}\n{response}",
                 in_reply_to_id=status_id,

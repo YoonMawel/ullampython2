@@ -185,7 +185,7 @@ def reminder_loop():
         hours = int(wait_seconds // 3600)
         minutes = int((wait_seconds % 3600) // 60)
         mastodon.status_post(
-            status=f"오늘 자정까지 {hours}시간 {minutes}분 남았습니다. 일일 조사 기회를 놓치지 마세요!",
+            status=f"조사 초기화까지 {hours}시간 {minutes}분 대기 중. . .",
             visibility="public"
         )
         time.sleep(10800)  # 3시간 = 10800초

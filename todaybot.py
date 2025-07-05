@@ -6,6 +6,7 @@ import json, os, re, random, threading, queue
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 import pytz
+import threading
 
 random.seed()
 
@@ -156,17 +157,38 @@ mention_queue = queue.Queue()
 executor = ThreadPoolExecutor(max_workers=10)
 
 
-def reset_daily_counts(): #자정마다 조사 횟수 초기화
+def reset_daily_counts():
     while True:
+        # 자정까지 기다렸다가 리셋
         now = datetime.now(KST)
-        target = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        target = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0)
         wait_seconds = (target - now).total_seconds()
         print(f"자정까지 {wait_seconds:.2f}초 대기 중...")
         threading.Event().wait(wait_seconds)
 
-        print("일일 조사 횟수를 초기화 하였습니다.")
+        # 초기화
         user_counts.clear()
         save_json(COUNT_FILE, user_counts)
+        user_rewards.clear()
+        save_json(REWARD_FILE, user_rewards)
+        print("일일 조사 기록 초기화 완료")
+        mastodon.status_post(
+            status="일일 조사 횟수와 보상 기록이 초기화 되었습니다.",
+            visibility="public"
+        )
+
+def reminder_loop():
+    while True:
+        now = datetime.now(KST)
+        target = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0)
+        wait_seconds = (target - now).total_seconds()
+        hours = int(wait_seconds // 3600)
+        minutes = int((wait_seconds % 3600) // 60)
+        mastodon.status_post(
+            status=f"오늘 자정까지 {hours}시간 {minutes}분 남았습니다. 일일 조사 기회를 놓치지 마세요!",
+            visibility="public"
+        )
+        time.sleep(10800)  # 3시간 = 10800초
 
 def handle_daily_survey(user, status_id): #응답 처리
     count = user_counts.get(user, 0)
@@ -318,6 +340,7 @@ def process_mentions():
 # 스레드 시작
 threading.Thread(target=process_mentions, daemon=True).start()
 threading.Thread(target=reset_daily_counts, daemon=True).start()
+threading.Thread(target=reminder_loop, daemon=True).start()
 mastodon.stream_user(BotListener())
 
 

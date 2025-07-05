@@ -149,8 +149,18 @@ def handle_gamble(username, item_name, quantity):
     if curr_qty < quantity:
         return f"{item_name}이(가) 부족합니다. 현재 {curr_qty}개 보유 중"
 
-    # 도박 확률 정의
+    # (1) 가격 확인
+    unit_cost = int(item["가격"])
+    total_cost = unit_cost * quantity
+
+    # (2) 현재 금화 확인
+    curr_gold = int(inventory_sheet.cell(row, 2).value)
+    if curr_gold < total_cost:
+        return f"금이 부족합니다. {total_cost}골드 필요, 현재 {curr_gold}골드 보유 중"
+
+    # (3) 도박 실행
     results = []
+    payout = 0
     for _ in range(quantity):
         r = random.random()
         if r < 0.30:
@@ -162,13 +172,17 @@ def handle_gamble(username, item_name, quantity):
         else:
             multiplier = 5
         results.append(multiplier)
+        payout += unit_cost * multiplier
 
-    total_gold = int(inventory_sheet.cell(row, 2).value)
-    new_gold = total_gold * results[-1]  # 마지막 배수 기준 (원하면 평균으로도 가능)
-    inventory_sheet.update_cell(row, 2, new_gold)
+    # (4) 결과 반영
+    inventory_sheet.update_cell(row, 2, curr_gold - total_cost + payout)
     inventory_sheet.update_cell(row, item_col, curr_qty - quantity)
 
-    return f"{username}님이 '{item_name}' {quantity}개를 사용했습니다. 배수 결과: {results}, 최종 금화: {new_gold}골드"
+    return (
+        f"{username}님이 '{item_name}' {quantity}개를 사용했습니다.\n"
+        f"배수 결과: {results}\n"
+        f"획득 금화: 금 {payout}개 (지출 {total_cost} → 최종 보유금 {curr_gold - total_cost + payout})"
+    )
 
 def handle_random_box(username, item_name, quantity):
     box_map = get_random_box_pools()

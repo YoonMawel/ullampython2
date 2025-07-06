@@ -39,7 +39,6 @@ COUNT_FILE = "user_daily_count.json"
 REWARD_FILE = "user_reward.json"
 LAST_FILE = "user_last_daily.json"
 
-
 # ===== JSON 로드 =====
 def load_json(filename):
     if os.path.exists(filename):
@@ -214,6 +213,12 @@ def handle_daily_survey(user, status_id): #응답 처리
     save_json(COUNT_FILE, user_counts)
     save_json(LAST_FILE, user_last)
 
+    # === 보상 지급 ===
+    if give_daily_spirit(user):
+        message += "\n(보상: 영혼 1개 지급됨)"
+    else:
+        message += "\n(오늘의 영혼 보상은 이미 받았습니다)"
+
     if has_followup and followup_key:
         message += f"\n추가 조사 가능: [일일/{followup_key}]"
     mastodon.status_post(
@@ -221,6 +226,26 @@ def handle_daily_survey(user, status_id): #응답 처리
         in_reply_to_id=status_id,
         visibility="unlisted"
     )
+
+def has_received_spirit_today(user):
+    sheet_log = client.open_by_key(SPREADSHEET_ID).worksheet("일일영혼지급")
+    records = sheet_log.get_all_values()
+    today = datetime.now(KST).strftime("%Y-%m-%d")
+    for row in records[1:]:  # 첫 줄은 헤더니까 생략
+        if len(row) >= 2 and row[0] == user and row[1] == today:
+            return True
+    return False
+
+def give_daily_spirit(user):
+    if has_received_spirit_today(user):
+        return  # 오늘 이미 받았으면 무시
+    add_item(user, "영혼 1개")
+    log_daily_spirit_given(user)
+
+def log_daily_spirit_given(user):
+    sheet_log = client.open_by_key(SPREADSHEET_ID).worksheet("일일영혼지급")
+    today = datetime.now(KST).strftime("%Y-%m-%d")
+    sheet_log.append_row([user, today])
 
 def handle_followup(user, status_id, followup_key):  # 추가 선택지 처리
     last_id = user_last.get(user)
@@ -300,7 +325,6 @@ def handle_followup(user, status_id, followup_key):  # 추가 선택지 처리
         visibility="unlisted"
     )
 
-
 def parse_input(text):
     match_daily = re.search(r"\[일일조사\]", text)
     match_followup = re.search(r"\[일일\/([^\]]+)\]", text)
@@ -309,7 +333,6 @@ def parse_input(text):
     elif match_followup:
         return "followup", match_followup.group(1).strip()
     return None, None
-
 
 def handle_mention(notification):
     status = notification["status"]

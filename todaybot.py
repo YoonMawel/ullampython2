@@ -238,9 +238,10 @@ def has_received_spirit_today(user):
 
 def give_daily_spirit(user):
     if has_received_spirit_today(user):
-        return  # 오늘 이미 받았으면 무시
+        return False  # 이미 오늘 지급했음
     add_item(user, "영혼 1개")
     log_daily_spirit_given(user)
+    return True  # 새로 지급했음
 
 def log_daily_spirit_given(user):
     sheet_log = client.open_by_key(SPREADSHEET_ID).worksheet("일일영혼지급")

@@ -61,6 +61,22 @@ def parse_item_string(item_str):
             results.append((name, count))
     return results
 
+def add_item(user, item_str):
+    inventory = get_user_inventory(user)
+
+    for item, qty in parse_item_string(item_str):
+        inventory[item] = inventory.get(item, 0) + qty
+
+    update_inventory(user, inventory)
+
+def remove_item(user, item_str):
+    inventory = get_user_inventory(user)
+
+    for item, qty in parse_item_string(item_str):
+        inventory[item] = max(inventory.get(item, 0) - qty, 0)
+
+    update_inventory(user, inventory)
+
 user_counts = load_json(COUNT_FILE)
 user_rewards = load_json(REWARD_FILE)
 user_last = load_json(LAST_FILE)
@@ -89,10 +105,15 @@ sheet_data = [
 def get_user_inventory(user):
     headers = sheet_inventory.row_values(1)
     all_users = sheet_inventory.col_values(1)
-    try:
-        row_index = all_users.index(user) + 1
-    except ValueError:
-        # 신규 유저 초기화
+    user_clean = user.strip().lower()
+
+    row_index = None
+    for i, uid in enumerate(all_users):
+        if uid.strip().lower() == user_clean:
+            row_index = i + 1
+            break
+
+    if row_index is None:
         sheet_inventory.append_row([user, 0, 0, "-"])
         return {"금": 0, "영혼": 0}
 
@@ -116,9 +137,15 @@ def get_user_inventory(user):
 
 def update_inventory(user, inventory):
     all_users = sheet_inventory.col_values(1)
-    try:
-        row_index = all_users.index(user) + 1
-    except ValueError:
+    user_clean = user.strip().lower()
+    row_index = None
+
+    for i, uid in enumerate(all_users):
+        if uid.strip().lower() == user_clean:
+            row_index = i + 1
+            break
+
+    if row_index is None:
         row_index = len(all_users) + 1
         sheet_inventory.update_cell(row_index, 1, user)
 
@@ -130,18 +157,6 @@ def update_inventory(user, inventory):
     ]
     item_cell = ", ".join(item_strs) if item_strs else "-"
     sheet_inventory.update(f"B{row_index}:D{row_index}", [[gold, soul, item_cell]])
-
-def add_item(user, item_str):
-    inventory = get_user_inventory(user)
-    for item, qty in parse_item_string(item_str):
-        inventory[item] = inventory.get(item, 0) + qty
-    update_inventory(user, inventory)
-
-def remove_item(user, item_str):
-    inventory = get_user_inventory(user)
-    for item, qty in parse_item_string(item_str):
-        inventory[item] = max(inventory.get(item, 0) - qty, 0)
-    update_inventory(user, inventory)
 
 # ===== 마스토돈 세팅 =====
 mastodon = Mastodon(

@@ -31,7 +31,8 @@ EXTRA_LIMIT_USERS = {
     "POLARLIGHT": 3,
     "Lee_Sak": 3,
     "P_1122": 3,
-    "chy": 3
+    "chy": 3,
+    "justlikeTT": 3
 }
 
 # ===== 파일 정의 =====

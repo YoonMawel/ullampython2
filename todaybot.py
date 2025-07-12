@@ -18,6 +18,8 @@ WORKSHEET_NAME = "개별자동봇"
 INVENTORY_SHEET_NAME = "인벤토리"
 GCP_CREDENTIALS_FILE = "credentials.json"
 KST = pytz.timezone("Asia/Seoul")
+ACTION_SHEET_NAME = "행동력"
+
 
 #나태 러너 조사 횟수 확장 전역변수 (계속 하드코딩해서 추가해 줘야 함)
 EXTRA_LIMIT_USERS = {
@@ -93,6 +95,7 @@ client = gspread.authorize(creds)
 SPREADSHEET_ID = "1Wt251QshkAaWWS-QybmSjT7AavatMb2nu--rgKcUDIA"
 sheet_main = client.open_by_key(SPREADSHEET_ID).worksheet(WORKSHEET_NAME)
 sheet_inventory = client.open_by_key(SPREADSHEET_ID).worksheet(INVENTORY_SHEET_NAME)
+sheet_action = client.open_by_key(SPREADSHEET_ID).worksheet(ACTION_SHEET_NAME)
 
 sheet_data_raw = sheet_main.get_all_records()
 
@@ -101,6 +104,74 @@ sheet_data = [
     row for row in sheet_data_raw
     if str(row.get("조사 ID", "")).strip() != "" and str(row.get("메인 문장", "")).strip() != ""
 ]
+
+def get_user_action_info(user):
+    today = datetime.now(KST).strftime("%Y-%m-%d")
+    all_users = sheet_action.col_values(1)
+    user_clean = user.strip().lower()
+
+    row_index = None
+    for i, uid in enumerate(all_users):
+        if uid.strip().lower() == user_clean:
+            row_index = i + 1
+            break
+
+    if row_index is None:
+        # 유저 없으면 기본 행동력 1로 새로 추가
+        sheet_action.append_row([user, 1, today, 0])
+        return 1, 0  # max_action, used_count
+
+    row = sheet_action.row_values(row_index)
+    max_action = int(row[1]) if len(row) > 1 and row[1].isdigit() else 1
+    last_date = row[2] if len(row) > 2 else ""
+    used_count = int(row[3]) if len(row) > 3 and row[3].isdigit() else 0
+
+    if last_date != today:
+        # 날짜가 바뀌었으면 사용횟수 초기화
+        sheet_action.update(f"C{row_index}:D{row_index}", [[today, 0]])
+        return max_action, 0
+
+    return max_action, used_count
+
+def consume_action_point(user):
+    today = datetime.now(KST).strftime("%Y-%m-%d")
+    all_users = sheet_action.col_values(1)
+    user_clean = user.strip().lower()
+
+    row_index = None
+    for i, uid in enumerate(all_users):
+        if uid.strip().lower() == user_clean:
+            row_index = i + 1
+            break
+
+    if row_index is None:
+        # 유저 없으면 기본 행동력 1로 추가 후 바로 1 사용
+        sheet_action.append_row([user, 1, today, 1])
+        return
+
+    row = sheet_action.row_values(row_index)
+    last_date = row[2] if len(row) > 2 else ""
+    used = int(row[3]) if len(row) > 3 and row[3].isdigit() else 0
+
+    if last_date != today:
+        # 날짜가 바뀌었으면 초기화하고 사용 1회
+        sheet_action.update(f"C{row_index}:D{row_index}", [[today, 1]])
+    else:
+        sheet_action.update_cell(row_index, 4, used + 1)
+
+def can_use_action_point(user):
+    max_action, used = get_user_action_info(user)
+    return used < max_action
+
+def reset_action_points():
+    today = datetime.now(KST).strftime("%Y-%m-%d")
+    all_records = sheet_action.get_all_values()
+
+    for i, row in enumerate(all_records[1:], start=2):  # 첫 줄은 헤더니까 2번 줄부터
+        sheet_action.update(f"C{i}:D{i}", [[today, 0]])
+
+    print(f"[{today}] 행동력 전체 초기화 완료됨.")
+
 
 # ===== 시트 기반 인벤토리 도우미 함수 =====
 def get_user_inventory(user):
@@ -186,9 +257,11 @@ def reset_daily_counts():
         save_json(COUNT_FILE, user_counts)
         user_rewards.clear()
         save_json(REWARD_FILE, user_rewards)
+
+        reset_action_points()
         print("일일 조사 기록 초기화 완료")
         mastodon.status_post(
-            status="일일 조사 횟수와 보상 기록이 초기화 되었습니다.",
+            status="일일 조사 횟수와 보상 기록, 행동력이 초기화 되었습니다.",
             visibility="public"
         )
 
@@ -272,7 +345,15 @@ def handle_followup(user, status_id, followup_key):  # 추가 선택지 처리
             in_reply_to_id=status_id,
             visibility="unlisted"
         )
-        return
+        return  # 빠뜨리면 안 됨!!
+
+    if not can_use_action_point(user):
+        mastodon.status_post(
+            status=f"@{user}\n행동력이 부족하여 추가 조사를 진행할 수 없습니다.",
+            in_reply_to_id=status_id,
+            visibility="unlisted"
+        )
+        return  # 여기서도 return 필수!
 
     match = next((row for row in sheet_data if str(row.get("조사 ID")) == last_id), None)
     if not match or match.get("추가 키워드", "").strip() != followup_key:

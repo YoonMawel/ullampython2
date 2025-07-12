@@ -40,6 +40,25 @@ random_box_cache = {}
 random_box_last_updated = 0
 RANDOM_BOX_CACHE_TTL = 21600 #6시간
 
+def handle_generic_use(username, item_name, quantity):
+    row = get_user_row(username)
+    if not row:
+        return f"{username}님의 인벤토리를 찾을 수 없습니다."
+
+    header = inventory_sheet.row_values(1)
+    if item_name not in header:
+        return f"{item_name}에 대한 인벤토리 열이 없습니다."
+
+    item_col = header.index(item_name) + 1
+    curr_qty = int(inventory_sheet.cell(row, item_col).value or "0")
+
+    if curr_qty < quantity:
+        return f"{item_name}이(가) 부족합니다. 현재 {curr_qty}개 보유 중"
+
+    inventory_sheet.update_cell(row, item_col, curr_qty - quantity)
+
+    return f"{username}님이 '{item_name}' {quantity}개를 사용했습니다."
+
 # --- 워커 ---
 def worker():
     while True:
@@ -50,7 +69,17 @@ def worker():
         if action == "구매":
             result = handle_purchase(user, item_name, count)
         elif action == "사용":
-            result = handle_gamble(user, item_name, count)
+            shop = get_shop_items()
+            item = shop.get(item_name)
+
+            if item and str(item.get("도박여부", "")).upper() == "TRUE":
+                result = handle_gamble(user, item_name, count)
+            elif item_name in get_random_box_pools():
+                result = handle_random_box(user, item_name, count)
+            elif item_name in shop:  # 기타 아이템은 차감만
+                result = handle_generic_use(user, item_name, count)
+            else:
+                result = f"{item_name}은(는) 사용할 수 있는 아이템이 아니거나 기능이 구현되어 있지 않습니다."
         elif action == "랜덤":
             result = handle_random_box(user, item_name, count)
         else:
@@ -151,12 +180,9 @@ def handle_gamble(username, item_name, quantity):
 
     # (1) 가격 확인
     unit_cost = int(item["가격"])
-    total_cost = unit_cost * quantity
 
-    # (2) 현재 금화 확인
+    # (2) 현재 금화 확인 (소비 X → 확인도 필요 없음)
     curr_gold = int(inventory_sheet.cell(row, 2).value)
-    if curr_gold < total_cost:
-        return f"금이 부족합니다. {total_cost}골드 필요, 현재 {curr_gold}골드 보유 중"
 
     # (3) 도박 실행
     results = []
@@ -174,14 +200,14 @@ def handle_gamble(username, item_name, quantity):
         results.append(multiplier)
         payout += unit_cost * multiplier
 
-    # (4) 결과 반영
-    inventory_sheet.update_cell(row, 2, curr_gold - total_cost + payout)
+    # (4) 보상만 반영 (차감 없음)
+    inventory_sheet.update_cell(row, 2, curr_gold + payout)
     inventory_sheet.update_cell(row, item_col, curr_qty - quantity)
 
     return (
         f"{username}님이 '{item_name}' {quantity}개를 사용했습니다.\n"
         f"배수 결과: {results}\n"
-        f"획득 금화: 금 {payout}개 (지출 {total_cost} → 최종 보유금 {curr_gold - total_cost + payout})"
+        f"획득 금화: 금 {payout}개 → 최종 보유금 {curr_gold + payout}개"
     )
 
 def handle_random_box(username, item_name, quantity):

@@ -355,6 +355,8 @@ def handle_followup(user, status_id, followup_key):  # 추가 선택지 처리
         )
         return  # 여기서도 return 필수!
 
+    consume_action_point(user) #행동력 소모 카운트
+
     match = next((row for row in sheet_data if str(row.get("조사 ID")) == last_id), None)
     if not match or match.get("추가 키워드", "").strip() != followup_key:
         mastodon.status_post(

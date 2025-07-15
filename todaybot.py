@@ -134,6 +134,7 @@ def get_user_action_info(user):
     return max_action, used_count
 
 def consume_action_point(user):
+    print(f"[DEBUG] 행동력 차감 시도 - {user}")
     today = datetime.now(KST).strftime("%Y-%m-%d")
     all_users = sheet_action.col_values(1)
     user_clean = user.strip().lower()
@@ -151,7 +152,12 @@ def consume_action_point(user):
 
     row = sheet_action.row_values(row_index)
     last_date = row[2] if len(row) > 2 else ""
-    used = int(row[3]) if len(row) > 3 and row[3].isdigit() else 0
+    try:
+        used = int(row[3].strip())
+    except:
+        used = 0
+
+    print(f"[DEBUG] {user} → 행동력 차감 직전 used={used}, 날짜={last_date}, 오늘={today}")
 
     if last_date != today:
         # 날짜가 바뀌었으면 초기화하고 사용 1회

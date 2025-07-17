@@ -28,7 +28,7 @@ EXTRA_LIMIT_USERS = {
     "barcord": 3,
     "AnnYr": 3,
     "Zhiwei": 3,
-    "NEMO": 3,
+    "DEMONS": 3,
     "Liu_wonlan": 3,
     "POLARLIGHT": 3,
     "Lee_Sak": 3,
